@@ -1,13 +1,17 @@
 import torch
 import numpy as np
 from scipy.special import softmax
-from pytorch_tabnet.utils import PredictDataset
+from pytorch_tabnet.utils import PredictDataset, filter_weights
 from pytorch_tabnet.abstract_model import TabModel
 from pytorch_tabnet.multiclass_utils import infer_output_dim, check_output_dim
 from torch.utils.data import DataLoader
 
 
 class TabNetClassifier(TabModel):
+    def __post_init__(self):
+        super(TabNetClassifier, self).__post_init__()
+        self._task = 'classification'
+
     def weight_updater(self, weights):
         """
         Updates weights dictionnary according to target_mapper.
@@ -64,8 +68,11 @@ class TabNetClassifier(TabModel):
         }
         self.updated_weights = self.weight_updater(weights)
 
-    def convert_score(self, y_score):
-        return softmax(y_score, axis=1)
+    def stack_batches(self, list_y_true, list_y_score):
+        y_true = np.hstack(list_y_true)
+        y_score = np.vstack(list_y_score)
+        y_score = softmax(y_score, axis=1)
+        return y_true, y_score
 
     def predict_func(self, outputs):
         outputs = np.argmax(outputs, axis=1)
@@ -104,11 +111,15 @@ class TabNetClassifier(TabModel):
 
 
 class TabNetRegressor(TabModel):
+    def __post_init__(self):
+        super(TabNetRegressor, self).__post_init__()
+        self._task = 'regression'
+
     def prepare_target(self, y):
         return y
 
     def compute_loss(self, y_pred, y_true):
-        return self.loss_fn(y_pred, y_true)
+        return self.loss_fn(y_pred, y_true.reshape(-1, 1))
 
     def get_default_metric(self):
         return "MSE"
@@ -123,17 +134,15 @@ class TabNetRegressor(TabModel):
         eval_set,
         weights
     ):
-        if len(y_train.shape) == 1:
-            raise ValueError(
-                """Please apply reshape(-1, 1) to your targets
-                                if doing single regression."""
-            )
-        self.output_dim = y_train.shape[1]
+        self.output_dim = 1
 
         self.updated_weights = weights
+        filter_weights(self.updated_weights)
 
     def predict_func(self, outputs):
         return outputs
 
-    def convert_score(self, y_score):
-        return y_score
+    def stack_batches(self, list_y_true, list_y_score):
+        y_true = np.hstack(list_y_true)
+        y_score = np.vstack(list_y_score)
+        return y_true, y_score

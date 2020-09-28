@@ -1,7 +1,14 @@
 from dataclasses import dataclass
 from typing import List
 import numpy as np
-from sklearn.metrics import roc_auc_score, mean_squared_error, accuracy_score, log_loss
+from sklearn.metrics import (
+    roc_auc_score,
+    mean_squared_error,
+    mean_absolute_error,
+    accuracy_score,
+    log_loss,
+    balanced_accuracy_score,
+)
 
 
 @dataclass
@@ -18,10 +25,11 @@ class MetricContainer:
     """
 
     metric_names: List[str]
+    task: str
     prefix: str = ""
 
     def __post_init__(self):
-        self.metrics = Metric.get_metrics_by_names(self.metric_names)
+        self.metrics = Metric.get_metrics_by_names(self.metric_names, self.task)
         self.names = [self.prefix + name for name in self.metric_names]
 
     def __call__(self, y_true, y_pred):
@@ -42,7 +50,13 @@ class MetricContainer:
         """
         logs = {}
         for metric in self.metrics:
-            logs[self.prefix + metric._name] = metric(y_true, y_pred)
+            if isinstance(y_pred, list):
+                res = np.mean(
+                    [metric(y_true[:, i], y_pred[i]) for i in range(len(y_pred))]
+                )
+            else:
+                res = metric(y_true, y_pred)
+            logs[self.prefix + metric._name] = res
         return logs
 
 
@@ -51,7 +65,7 @@ class Metric:
         raise NotImplementedError("Custom Metrics must implement this function")
 
     @classmethod
-    def get_metrics_by_names(cls, names):
+    def get_metrics_by_names(cls, names, task):
         """Get list of metric classes.
 
         Parameters
@@ -60,6 +74,8 @@ class Metric:
             Metric class.
         names : list
             List of metric names.
+        task : str.
+            'classification' or 'regression'.
 
         Returns
         -------
@@ -68,10 +84,10 @@ class Metric:
 
         """
         available_metrics = cls.__subclasses__()
-        available_names = [metric()._name for metric in available_metrics]
+        available_names = [metric()._name for metric in available_metrics if metric()._task == task]
         metrics = []
         for name in names:
-            assert name in available_names, f"{name} is not available"
+            assert name in available_names, f"{name} is not available for {task}"
             idx = available_names.index(name)
             metrics.append(available_metrics[idx]())
         return metrics
@@ -79,16 +95,17 @@ class Metric:
 
 class AUC(Metric):
     """
-    Root Mean Squared Error.
+    AUC.
     """
 
     def __init__(self):
         self._name = "AUC"
         self._maximize = True
+        self._task = 'classification'
 
     def __call__(self, y_true, y_score):
         """
-        Compute MSE (Mean Squared Error) of predictions.
+        Compute AUC of predictions.
 
         Parameters
         ----------
@@ -100,23 +117,24 @@ class AUC(Metric):
         Returns
         -------
             float
-            MSE of predictions vs targets.
+            AUC of predictions vs targets.
         """
-        return roc_auc_score(y_true, y_score)
+        return roc_auc_score(y_true, y_score[:, 1])
 
 
 class Accuracy(Metric):
     """
-    Root Mean Squared Error.
+    Accuracy.
     """
 
     def __init__(self):
         self._name = "accuracy"
         self._maximize = True
+        self._task = 'classification'
 
     def __call__(self, y_true, y_score):
         """
-        Compute MSE (Mean Squared Error) of predictions.
+        Compute Accuracy of predictions.
 
         Parameters
         ----------
@@ -128,24 +146,25 @@ class Accuracy(Metric):
         Returns
         -------
             float
-            MSE of predictions vs targets.
+            Accuracy of predictions vs targets.
         """
         y_pred = np.argmax(y_score, axis=1)
         return accuracy_score(y_true, y_pred)
 
 
-class LogLoss(Metric):
+class BalancedAccuracy(Metric):
     """
-    Root Mean Squared Error.
+    Balanced Accuracy.
     """
 
     def __init__(self):
-        self._name = "logloss"
-        self._maximize = False
+        self._name = "balanced_accuracy"
+        self._maximize = True
+        self._task = 'classification'
 
     def __call__(self, y_true, y_score):
         """
-        Compute MSE (Mean Squared Error) of predictions.
+        Compute Accuracy of predictions.
 
         Parameters
         ----------
@@ -157,19 +176,79 @@ class LogLoss(Metric):
         Returns
         -------
             float
-            MSE of predictions vs targets.
+            Accuracy of predictions vs targets.
+        """
+        y_pred = np.argmax(y_score, axis=1)
+        return balanced_accuracy_score(y_true, y_pred)
+
+
+class LogLoss(Metric):
+    """
+    LogLoss.
+    """
+
+    def __init__(self):
+        self._name = "logloss"
+        self._maximize = False
+        self._task = 'classification'
+
+    def __call__(self, y_true, y_score):
+        """
+        Compute LogLoss of predictions.
+
+        Parameters
+        ----------
+        y_true: np.ndarray
+            Target matrix or vector
+        y_score: np.ndarray
+            Score matrix or vector
+
+        Returns
+        -------
+            float
+            LogLoss of predictions vs targets.
         """
         return log_loss(y_true, y_score)
 
 
+class MAE(Metric):
+    """
+    Mean Absolute Error.
+    """
+
+    def __init__(self):
+        self._name = "MAE"
+        self._maximize = False
+        self._task = 'regression'
+
+    def __call__(self, y_true, y_score):
+        """
+        Compute MAE (Mean Absolute Error) of predictions.
+
+        Parameters
+        ----------
+        y_true: np.ndarray
+            Target matrix or vector
+        y_pred: np.ndarray
+            Score matrix or vector
+
+        Returns
+        -------
+            float
+            MAE of predictions vs targets.
+        """
+        return mean_absolute_error(y_true, y_score)
+
+
 class MSE(Metric):
     """
-    Root Mean Squared Error.
+    Mean Squared Error.
     """
 
     def __init__(self):
         self._name = "MSE"
         self._maximize = False
+        self._task = 'regression'
 
     def __call__(self, y_true, y_score):
         """
@@ -198,6 +277,7 @@ class RMSE(Metric):
     def __init__(self):
         self._name = "RMSE"
         self._maximize = False
+        self._task = 'regression'
 
     def __call__(self, y_true, y_score):
         """

@@ -205,7 +205,7 @@ def filter_weights(weights):
 
 
 def validate_eval_set(eval_set, eval_name, X_train, y_train):
-    """Short summary.
+    """Check if the shapes of eval_set are compatible with (X_train, y_train).
 
     Parameters
     ----------
@@ -238,14 +238,21 @@ def validate_eval_set(eval_set, eval_name, X_train, y_train):
             len(elem) == 2 for elem in eval_set
         ), "Each tuple of eval_set need to have two elements"
     for name, (X, y) in zip(eval_name, eval_set):
-        assert (
-            X.shape[1] == X_train.shape[1]
-        ), f"Number of columns is different between X_{name} ({X.shape[1]}) and X_train ({X_train.shape[1]})"
-        assert (
-            y.shape[1] == y_train.shape[1]
-        ), f"Number of columns is different between y_{name} ({y.shape[1]}) and y_train ({y_train.shape[1]})"
-        assert (
-            X.shape[0] == y.shape[0]
-        ), f"You need the same number of rows between X_{name} ({X.shape[0]}) and y_{name} ({y.shape[0]})"
+        msg = (
+            f"Number of columns is different between X_{name} "
+            + f"({X.shape[1]}) and X_train ({X_train.shape[1]})"
+        )
+        assert X.shape[1] == X_train.shape[1], msg
+        if len(y_train.shape) == 2:
+            msg = (
+                f"Number of columns is different between y_{name} "
+                + f"({y.shape[1]}) and y_train ({y_train.shape[1]})"
+            )
+            assert y.shape[1] == y_train.shape[1], msg
+        msg = (
+            f"You need the same number of rows between X_{name} "
+            + f"({X.shape[0]}) and y_{name} ({y.shape[0]})"
+        )
+        assert X.shape[0] == y.shape[0], msg
 
     return eval_name, eval_set

@@ -131,9 +131,10 @@ class EarlyStopping(Callback):
         current_loss = logs.get(self.early_stopping_metric)
         if current_loss is None:
             return
-        if (self.is_maximize and (current_loss - self.best_loss) > self.tol) or (
-            (not self.is_maximize) and (self.best_loss - current_loss) > self.tol
-        ):
+        loss_change = current_loss - self.best_loss
+        max_improved = (self.is_maximize and loss_change > self.tol)
+        min_improved = ((not self.is_maximize) and (-loss_change > self.tol))
+        if max_improved or min_improved:
             self.best_loss = current_loss
             self.wait = 1
             self.best_weights = copy.deepcopy(self.trainer.network.state_dict())
@@ -196,7 +197,7 @@ class History(Callback):
             return
         if epoch % self.verbose != 0:
             return
-        msg = f"step: {epoch:<4}"
+        msg = f"epoch: {epoch:<4}"
         for metric_name, metric_value in self.batch_metrics.items():
             msg += f"|  {metric_name:<5}: {np.round(metric_value, 5):<10}"
         self.total_time = int(time.time() - self.start_time)

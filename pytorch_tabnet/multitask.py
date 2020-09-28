@@ -1,12 +1,17 @@
 import torch
 import numpy as np
-from pytorch_tabnet.utils import PredictDataset
+from scipy.special import softmax
+from pytorch_tabnet.utils import PredictDataset, filter_weights
 from pytorch_tabnet.abstract_model import TabModel
 from pytorch_tabnet.multiclass_utils import infer_multitask_output
 from torch.utils.data import DataLoader
 
 
 class TabNetMultiTaskClassifier(TabModel):
+    def __post_init__(self):
+        super(TabNetMultiTaskClassifier, self).__post_init__()
+        self._task = 'classification'
+
     def prepare_target(self, y):
         y_mapped = y.copy()
         for task_idx in range(y.shape[1]):
@@ -20,9 +25,9 @@ class TabNetMultiTaskClassifier(TabModel):
 
             Parameters
             ----------
-                output: list of tensors
+                y_pred: list of tensors
                     Output of network
-                targets: LongTensor
+                y_true: LongTensor
                     Targets label encoded
 
         """
@@ -43,10 +48,19 @@ class TabNetMultiTaskClassifier(TabModel):
         return loss
 
     def get_default_metric(self):
-        return "MSE"
+        return "logloss"
 
     def get_default_loss(self):
         return torch.nn.functional.cross_entropy
+
+    def stack_batches(self, list_y_true, list_y_score):
+        y_true = np.vstack(list_y_true)
+        y_score = []
+        for i in range(len(self.output_dim)):
+            score = np.vstack([x[i] for x in list_y_score])
+            score = softmax(score, axis=1)
+            y_score.append(score)
+        return y_true, y_score
 
     def update_fit_params(self, X_train, y_train, eval_set, weights):
         output_dim, train_labels = infer_multitask_output(y_train)
@@ -61,73 +75,7 @@ class TabNetMultiTaskClassifier(TabModel):
             for classes in self.classes_
         ]
         self.updated_weights = weights
-
-    def _predict_epoch(self, name, loader):
-        """
-        Validates one epoch of the network in self.network
-
-        Parameters
-        ----------
-            loader: a :class: `torch.utils.data.Dataloader`
-                    DataLoader with validation set
-        """
-        self.network.eval()
-
-        y_true = []
-        results = {}
-
-        # Main loop
-        for batch_idx, (X, y) in enumerate(loader):
-            scores = self._predict_batch(X, y)
-            for task_idx in range(len(self.output_dim)):
-                results[task_idx] = results.get(task_idx, []) + [scores[task_idx]]
-            y_true.append(y)
-
-        results = [np.hstack(task_res) for task_res in results.values()]
-        # map all task individually
-        results = [
-            np.vectorize(self.preds_mapper[task_idx].get)(task_res)
-            for task_idx, task_res in enumerate(results)
-        ]
-
-        y_true = np.vstack(y_true)
-        for task_idx in range(len(self.output_dim)):
-            metrics_logs = self._metric_container_dict[name](
-                y_true[:, task_idx], results[task_idx]
-            )
-        # TODO: mean of metrics instead of last
-
-        self.network.train()
-        self.history.batch_metrics.update(metrics_logs)
-        return
-
-    def _predict_batch(self, X):
-        """
-        Make predictions on a batch (valid)
-
-        Parameters
-        ----------
-            data: a :tensor: `torch.Tensor`
-                Input data
-            target: a :tensor: `torch.Tensor`
-                Target data
-
-        Returns
-        -------
-            batch_outs: dict
-        """
-        self.network.eval()
-        X = X.to(self.device).float()
-        output, _ = self.network(X)
-        output = [
-            torch.argmax(torch.nn.Softmax(dim=1)(task_output), dim=1)
-            .cpu()
-            .detach()
-            .numpy()
-            .reshape(-1)
-            for task_output in output
-        ]
-        return output
+        filter_weights(self.updated_weights)
 
     def predict(self, X):
         """
@@ -207,3 +155,93 @@ class TabNetMultiTaskClassifier(TabModel):
                 results[task_idx] = results.get(task_idx, []) + [predictions[task_idx]]
         res = [np.vstack(task_res) for task_res in results.values()]
         return res
+
+
+class TabNetMultiTaskRegressor(TabModel):
+    def __post_init__(self):
+        super(TabNetMultiTaskRegressor, self).__post_init__()
+        self._task = 'regression'
+
+    def prepare_target(self, y):
+        return y
+
+    def compute_loss(self, y_pred, y_true):
+        """
+            Computes the loss according to network output and targets
+
+            Parameters
+            ----------
+                y_pred: list of tensors
+                    Output of network
+                y_true: LongTensor
+                    Targets label encoded
+
+        """
+        loss = 0
+        if isinstance(self.loss_fn, list):
+            # if you specify a different loss for each task
+            for task_loss, task_output, task_id in zip(
+                self.loss_fn, y_pred, range(len(self.loss_fn))
+            ):
+                loss += task_loss(task_output, y_true[:, task_id].reshape(-1, 1))
+        else:
+            # same loss function is applied to all tasks
+            for task_id, task_output in enumerate(y_pred):
+                loss += self.loss_fn(task_output, y_true[:, task_id].reshape(-1, 1))
+
+        loss /= len(y_pred)
+        return loss
+
+    def get_default_metric(self):
+        return "MSE"
+
+    def get_default_loss(self):
+        return torch.nn.functional.mse_loss
+
+    def stack_batches(self, list_y_true, list_y_score):
+        y_true = np.vstack(list_y_true)
+        y_score = []
+        for i in range(len(self.output_dim)):
+            score = np.vstack([x[i] for x in list_y_score])
+            y_score.append(score)
+        return y_true, y_score
+
+    def update_fit_params(self, X_train, y_train, eval_set, weights):
+        self.output_dim = [1] * y_train.shape[1]
+        self.updated_weights = weights
+        filter_weights(self.updated_weights)
+
+    def predict(self, X):
+        """
+        Make predictions on a batch (valid)
+
+        Parameters
+        ----------
+            data: a :tensor: `torch.Tensor`
+                Input data
+            target: a :tensor: `torch.Tensor`
+                Target data
+
+        Returns
+        -------
+            predictions: np.array
+                Predictions of the most probable class
+        """
+        self.network.eval()
+        dataloader = DataLoader(
+            PredictDataset(X), batch_size=self.batch_size, shuffle=False
+        )
+
+        results = {}
+        for data in dataloader:
+            data = data.to(self.device).float()
+            output, _ = self.network(data)
+            predictions = [
+                task_output.cpu().detach().numpy().reshape(-1) for task_output in output
+            ]
+
+            for task_idx in range(len(self.output_dim)):
+                results[task_idx] = results.get(task_idx, []) + [predictions[task_idx]]
+        # stack all task individually
+        results = [np.hstack(task_res) for task_res in results.values()]
+        return results
