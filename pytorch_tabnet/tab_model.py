@@ -11,6 +11,8 @@ class TabNetClassifier(TabModel):
     def __post_init__(self):
         super(TabNetClassifier, self).__post_init__()
         self._task = 'classification'
+        self._default_loss = torch.nn.functional.cross_entropy
+        self._default_metric = ('AUC' if self.output_dim == 2 else 'accuracy')
 
     def weight_updater(self, weights):
         """
@@ -38,15 +40,6 @@ class TabNetClassifier(TabModel):
 
     def compute_loss(self, y_pred, y_true):
         return self.loss_fn(y_pred, y_true.long())
-
-    def get_default_metric(self):
-        if self.output_dim == 2:
-            return "AUC"
-        else:
-            return "accuracy"
-
-    def get_default_loss(self):
-        return torch.nn.functional.cross_entropy
 
     def update_fit_params(
         self,
@@ -114,18 +107,14 @@ class TabNetRegressor(TabModel):
     def __post_init__(self):
         super(TabNetRegressor, self).__post_init__()
         self._task = 'regression'
+        self._default_loss = torch.nn.functional.mse_loss
+        self._default_metric = 'MSE'
 
     def prepare_target(self, y):
         return y
 
     def compute_loss(self, y_pred, y_true):
         return self.loss_fn(y_pred, y_true.reshape(-1, 1))
-
-    def get_default_metric(self):
-        return "MSE"
-
-    def get_default_loss(self):
-        return torch.nn.functional.mse_loss
 
     def update_fit_params(
         self,

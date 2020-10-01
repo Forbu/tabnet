@@ -17,7 +17,7 @@ from pytorch_tabnet.callbacks import (
     History,
     EarlyStopping,
 )
-from pytorch_tabnet.metrics import MetricContainer
+from pytorch_tabnet.metrics import MetricContainer, check_metrics
 from sklearn.base import BaseEstimator
 from torch.utils.data import DataLoader
 import io
@@ -134,7 +134,7 @@ class TabModel(BaseEstimator):
         self._stop_training = False
 
         if loss_fn is None:
-            self.loss_fn = self.get_default_loss()
+            self.loss_fn = self._default_loss
         else:
             self.loss_fn = loss_fn
 
@@ -503,8 +503,9 @@ class TabModel(BaseEstimator):
             List of eval set names.
 
         """
-        metrics = metrics or [self.get_default_metric()]
+        metrics = metrics or [self._default_metric]
 
+        metrics = check_metrics(metrics)
         # Set metric container for each sets
         self._metric_container_dict = {
             "train": MetricContainer(metrics, task=self._task, prefix="train_")
@@ -657,34 +658,6 @@ class TabModel(BaseEstimator):
         """
         raise NotImplementedError(
             "users must define compute_loss to use this base class"
-        )
-
-    @abstractmethod
-    def get_default_metric(self):
-        """
-        Define default metric for early stopping.
-
-        Returns
-        -------
-            str
-                Name of the metric.
-        """
-        raise NotImplementedError(
-            "users must define get_default_metric to use this base class"
-        )
-
-    @abstractmethod
-    def get_default_loss(self):
-        """
-        Define default loss function.
-
-        Returns
-        -------
-            torch.nn.functional
-                Loss function.
-        """
-        raise NotImplementedError(
-            "users must define get_default_loss to use this base class"
         )
 
     @abstractmethod

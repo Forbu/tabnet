@@ -84,12 +84,14 @@ class Metric:
 
         """
         available_metrics = cls.__subclasses__()
-        available_names = [metric()._name for metric in available_metrics if metric()._task == task]
+        available_names = [metric()._name for metric in available_metrics]
         metrics = []
         for name in names:
-            assert name in available_names, f"{name} is not available for {task}"
+            assert name in available_names, f"{name} is not available"
             idx = available_names.index(name)
-            metrics.append(available_metrics[idx]())
+            metric = available_metrics[idx]()
+            assert metric._task == task, f"{name} is not compatible for {task}"
+            metrics.append(metric)
         return metrics
 
 
@@ -296,3 +298,28 @@ class RMSE(Metric):
             RMSE of predictions vs targets.
         """
         return np.sqrt(mean_squared_error(y_true, y_score))
+
+
+def check_metrics(metrics):
+    """Check if custom metrics are provided.
+
+    Parameters
+    ----------
+    metrics : list of str or classes
+        List with built-in metrics (str) or custom metrics (classes).
+
+    Returns
+    -------
+    val_metrics : list of str
+        List of metric names.
+
+    """
+    val_metrics = []
+    for metric in metrics:
+        if isinstance(metric, str):
+            val_metrics.append(metric)
+        elif issubclass(metric, Metric):
+            val_metrics.append(metric()._name)
+        else:
+            raise TypeError("You need to provide a valid metric format")
+    return val_metrics

@@ -11,6 +11,8 @@ class TabNetMultiTaskClassifier(TabModel):
     def __post_init__(self):
         super(TabNetMultiTaskClassifier, self).__post_init__()
         self._task = 'classification'
+        self._default_loss = torch.nn.functional.cross_entropy
+        self._default_metric = 'logloss'
 
     def prepare_target(self, y):
         y_mapped = y.copy()
@@ -46,12 +48,6 @@ class TabNetMultiTaskClassifier(TabModel):
 
         loss /= len(y_pred)
         return loss
-
-    def get_default_metric(self):
-        return "logloss"
-
-    def get_default_loss(self):
-        return torch.nn.functional.cross_entropy
 
     def stack_batches(self, list_y_true, list_y_score):
         y_true = np.vstack(list_y_true)
@@ -161,6 +157,8 @@ class TabNetMultiTaskRegressor(TabModel):
     def __post_init__(self):
         super(TabNetMultiTaskRegressor, self).__post_init__()
         self._task = 'regression'
+        self._default_loss = torch.nn.functional.mse_loss
+        self._default_metric = 'MSE'
 
     def prepare_target(self, y):
         return y
@@ -191,12 +189,6 @@ class TabNetMultiTaskRegressor(TabModel):
 
         loss /= len(y_pred)
         return loss
-
-    def get_default_metric(self):
-        return "MSE"
-
-    def get_default_loss(self):
-        return torch.nn.functional.mse_loss
 
     def stack_batches(self, list_y_true, list_y_score):
         y_true = np.vstack(list_y_true)
